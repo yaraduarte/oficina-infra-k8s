@@ -53,7 +53,21 @@ terraform apply -auto-approve ...
 
 ## CI/CD
 
-Push na `main` provisiona a infraestrutura automaticamente.
+Pipeline em `.github/workflows/deploy.yml`: todo PR e push roda `terraform fmt -check`, `validate` e `plan` (resumo do plano publicado no job).
+
+### Fluxo de branches e ambientes
+
+```
+feature/*  ──PR──►  homolog  ──PR──►  main
+                      │                 │
+                      ▼                 ▼
+   plan (revisão das mudanças)    terraform apply (produção)
+```
+
+- `main` e `homolog` são **protegidas**: push direto bloqueado (inclusive para admin), merge só via Pull Request com os checks obrigatórios verdes e conversas resolvidas.
+- Todo PR roda o pipeline de validação; o deploy acontece apenas após o merge.
+
+A infraestrutura física (EC2 + k3s) é compartilhada: a homologação da aplicação roda isolada no namespace `oficina-hml` do mesmo cluster.
 
 ### Secrets necessários
 
