@@ -4,6 +4,10 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.6"
+    }
   }
   required_version = ">= 1.5"
 
@@ -75,21 +79,17 @@ resource "aws_security_group" "k3s_sg" {
     description = "HTTPS"
   }
 
+  # API do k3s apenas dentro da VPC (deploys usam SSH + kubectl no próprio nó)
   ingress {
     from_port   = 6443
     to_port     = 6443
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-    description = "k3s API server"
+    cidr_blocks = [data.aws_vpc.default.cidr_block]
+    description = "k3s API server (somente VPC)"
   }
 
-  ingress {
-    from_port   = 30080
-    to_port     = 30080
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-    description = "NodePort API"
-  }
+  # NodePorts (30080/30081) NÃO são expostos: o acesso externo é só pelo API Gateway -> Ingress (80),
+  # e os serviços exigem o header x-origin-verify injetado pelo Gateway.
 
   egress {
     from_port   = 0
@@ -125,9 +125,11 @@ resource "aws_instance" "k3s" {
   }
 
   user_data = base64encode(templatefile("${path.module}/user_data.sh", {
-    db_host     = var.db_host
-    db_password = var.db_password
-    jwt_secret  = var.jwt_secret
+    db_host              = var.db_host
+    db_password          = var.db_password
+    jwt_secret           = var.jwt_secret
+    internal_api_key     = var.internal_api_key
+    origin_verify_secret = random_password.origin_verify.result
   }))
 
   tags = {

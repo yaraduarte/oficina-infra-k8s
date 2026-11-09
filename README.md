@@ -13,23 +13,39 @@ Infraestrutura Kubernetes da **Oficina Marimbondo** — EC2 com k3s provisionada
 ## Arquitetura
 
 ```
-GitHub Actions
-     │
-     ▼
+Internet
+   │  HTTPS
+   ▼
+API Gateway HTTP API  (gateway.tf)  ── authorizer JWT: Lambda oficina-authorizer
+   │  injeta x-origin-verify + x-user-sub/role/type
+   ├── POST /auth ─────────────────────────► Lambda oficina-auth
+   ├── ANY  /os/{proxy+}        [JWT] ─┐
+   ├── ANY  /billing/{proxy+}   [JWT] ─┼──► EC2 :80  Traefik Ingress (k3s)
+   ├── ANY  /execucao/{proxy+}  [JWT] ─┘        ├── /os       → os-service
+   └── públicas: POST /os/api/auth/login,       ├── /billing  → billing-service
+       GET /*/health, POST /billing/webhooks/   └── /execucao → execution-service
+       mercadopago
+
 Terraform
-     │
-     ├── aws_instance (EC2 t3.medium)
-     │     └── user_data.sh
-     │           ├── instala k3s
-     │           ├── cria namespace oficina-marimb0ndo
-     │           ├── aplica ConfigMap + Secret
-     │           ├── Deployment (2 réplicas)
-     │           ├── Service NodePort :30080
-     │           └── HPA (min:2 max:10 cpu:60%)
-     ├── aws_security_group (22, 80, 443, 6443, 30080)
-     ├── aws_key_pair
-     └── aws_eip (IP elástico)
+   ├── aws_instance (EC2 t3.medium) + user_data.sh
+   │     ├── k3s, namespace, ConfigMap, Secret
+   │     ├── Deployment + Service (ClusterIP/NodePort interno) + HPA
+   │     └── Ingress /os + Middleware strip-prefix
+   ├── aws_security_group: 22 (SSH deploy), 80/443 (Ingress), 6443 só VPC
+   ├── aws_apigatewayv2_* (API, stage com access logs, authorizer, rotas)
+   ├── random_password.origin_verify (segredo Gateway → serviços)
+   └── aws_eip
 ```
+
+### API Gateway explícito (feedback da Fase 3)
+
+- **Porta única de entrada:** NodePorts não ficam mais abertos no Security Group, e os serviços recusam com 403 requisições sem o header `x-origin-verify`, que só o Gateway conhece.
+- **Authorizer JWT:** valida assinatura, `iss`, `aud`, `exp` e `status = ATIVO` (código e testes em `oficina-lambda-auth/src/authorizer.js`). O cache é de 5 minutos por token.
+- **Access logs** no CloudWatch (`/aws/apigateway/oficina-gateway`), com rota, status, latência e erro do authorizer.
+- **Throttling:** 50 req/s, com burst de 100.
+- Rotas `/internal/*` não são publicadas no Gateway. A Lambda de auth as chama pelo Ingress usando `x-internal-api-key`.
+
+**Ordem de deploy:** as funções `oficina-auth` e `oficina-authorizer` (stack SAM do `oficina-lambda-auth`) precisam existir antes do `terraform apply`, por causa das permissões `aws_lambda_permission`.
 
 ## Pré-requisitos
 
@@ -79,3 +95,4 @@ A infraestrutura física (EC2 + k3s) é compartilhada: a homologação da aplica
 | `DB_PASSWORD` | Senha do banco |
 | `JWT_SECRET` | Chave JWT |
 | `K3S_SSH_PUBLIC_KEY` | Chave pública SSH |
+| `INTERNAL_API_KEY` | Chave das rotas `/internal/*` do os-service (mesmo valor do secret no `oficina-lambda-auth`) |
