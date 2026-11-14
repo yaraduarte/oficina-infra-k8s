@@ -119,6 +119,17 @@ resource "aws_instance" "k3s" {
   vpc_security_group_ids = [aws_security_group.k3s_sg.id]
   key_name               = aws_key_pair.oficina.key_name
 
+  # Learner Lab: perfil pré-existente (não é possível criar roles). Dá aos pods
+  # credenciais temporárias via IMDS para acessar o DynamoDB do billing-service.
+  iam_instance_profile = var.instance_profile_name
+
+  # hop limit 2: o IMDSv2 precisa responder aos containers (1 salto extra pela rede do k3s)
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 2
+  }
+
   root_block_device {
     volume_size = 30 # AMIs AL2023 recentes exigem >= 30GB
     volume_type = "gp3"

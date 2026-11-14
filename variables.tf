@@ -32,3 +32,9 @@ variable "internal_api_key" {
   type        = string
   sensitive   = true
 }
+
+variable "instance_profile_name" {
+  description = "Instance profile da EC2 do k3s (no AWS Academy Learner Lab: LabInstanceProfile)"
+  type        = string
+  default     = "LabInstanceProfile"
+}
