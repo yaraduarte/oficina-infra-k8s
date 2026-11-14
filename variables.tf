@@ -26,3 +26,9 @@ variable "jwt_secret" {
   type        = string
   sensitive   = true
 }
+
+variable "internal_api_key" {
+  description = "Chave das rotas /internal/* do os-service (usada pela Lambda de auth no header x-internal-api-key)"
+  type        = string
+  sensitive   = true
+}
