@@ -120,7 +120,7 @@ resource "aws_instance" "k3s" {
   key_name               = aws_key_pair.oficina.key_name
 
   root_block_device {
-    volume_size = 20
+    volume_size = 30 # AMIs AL2023 recentes exigem >= 30GB
     volume_type = "gp3"
   }
 
