@@ -42,6 +42,8 @@ type: Opaque
 stringData:
   DB_PASS: "${db_password}"
   JWT_SECRET: "${jwt_secret}"
+  INTERNAL_API_KEY: "${internal_api_key}"
+  ORIGIN_VERIFY_SECRET: "${origin_verify_secret}"
   SMTP_USER: ""
   SMTP_PASS: ""
 EOF
@@ -67,7 +69,7 @@ spec:
     spec:
       containers:
       - name: oficina-api
-        image: ghcr.io/yaraduarte/oficinamarimb0ndo:latest
+        image: yaraduarte/oficina-marimb0ndo-api:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 3000
@@ -85,6 +87,16 @@ spec:
             secretKeyRef:
               name: oficina-secret
               key: JWT_SECRET
+        - name: INTERNAL_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: oficina-secret
+              key: INTERNAL_API_KEY
+        - name: ORIGIN_VERIFY_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: oficina-secret
+              key: ORIGIN_VERIFY_SECRET
         resources:
           requests:
             memory: "128Mi"
@@ -144,6 +156,40 @@ spec:
       target:
         type: Utilization
         averageUtilization: 60
+EOF
+
+# Ingress (Traefik, porta 80): /os -> os-service. O prefixo é removido antes de chegar ao pod.
+# billing-service e execution-service registram /billing e /execucao nos próprios manifestos.
+kubectl apply -f - <<EOF
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-os
+  namespace: oficina-marimb0ndo
+spec:
+  stripPrefix:
+    prefixes:
+      - /os
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: os-service
+  namespace: oficina-marimb0ndo
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+    traefik.ingress.kubernetes.io/router.middlewares: oficina-marimb0ndo-strip-os@kubernetescrd
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /os
+        pathType: Prefix
+        backend:
+          service:
+            name: oficina-api-service
+            port:
+              number: 80
 EOF
 
 echo "k3s setup completo!"
