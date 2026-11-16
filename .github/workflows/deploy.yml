@@ -103,7 +103,7 @@ jobs:
         run: terraform apply -input=false -auto-approve
 
       # Recursos dentro do k3s (RabbitMQ, etc.): idempotente, roda após cada apply
-      - name: Bootstrap do cluster (RabbitMQ)
+      - name: Bootstrap do cluster (RabbitMQ, execution_db)
         env:
           K3S_SSH_PRIVATE_KEY: ${{ secrets.K3S_SSH_PRIVATE_KEY }}
         run: |
@@ -112,6 +112,6 @@ jobs:
           SSH_OPTS="-i $HOME/k3s-key -o StrictHostKeyChecking=no -o ConnectTimeout=20"
           for i in $(seq 1 30); do ssh $SSH_OPTS ec2-user@"$HOST" true && break; echo "aguardando SSH ($i/30)"; sleep 10; done
           ssh $SSH_OPTS ec2-user@"$HOST" 'rm -rf /tmp/oficina-bootstrap && mkdir -p /tmp/oficina-bootstrap'
-          scp $SSH_OPTS k8s/rabbitmq.yaml scripts/bootstrap-cluster.sh ec2-user@"$HOST":/tmp/oficina-bootstrap/
+          scp $SSH_OPTS k8s/rabbitmq.yaml k8s/execution-db-init.yaml scripts/bootstrap-cluster.sh ec2-user@"$HOST":/tmp/oficina-bootstrap/
           ssh $SSH_OPTS ec2-user@"$HOST" 'bash /tmp/oficina-bootstrap/bootstrap-cluster.sh oficina-marimb0ndo /tmp/oficina-bootstrap'
           rm -f ~/k3s-key

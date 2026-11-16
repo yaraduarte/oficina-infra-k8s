@@ -1,0 +1,50 @@
+# Provisiona o banco próprio do execution-service (ADR-007) na instância RDS:
+# database execution_db, usuário "execution" com acesso só a ele, CONNECT revogado de PUBLIC.
+# Idempotente. Aplicado por scripts/bootstrap-cluster.sh com __NAMESPACE__ substituído.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: execution-db-init
+  namespace: __NAMESPACE__
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: psql
+          image: postgres:15-alpine
+          env:
+            - name: PGHOST
+              valueFrom: { configMapKeyRef: { name: oficina-config, key: DB_HOST } }
+            - name: PGUSER
+              valueFrom: { configMapKeyRef: { name: oficina-config, key: DB_USER } }
+            - name: PGPASSWORD
+              valueFrom: { secretKeyRef: { name: oficina-secret, key: DB_PASS } }
+            - name: PGDATABASE
+              value: postgres
+            - name: PGSSLMODE
+              value: require
+            - name: EXEC_USER
+              valueFrom: { secretKeyRef: { name: execution-db, key: user } }
+            - name: EXEC_PASS
+              valueFrom: { secretKeyRef: { name: execution-db, key: password } }
+            - name: EXEC_DB
+              valueFrom: { secretKeyRef: { name: execution-db, key: database } }
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              psql -v ON_ERROR_STOP=1 -v u="$EXEC_USER" -v p="$EXEC_PASS" -v d="$EXEC_DB" <<'SQL'
+              SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', :'u', :'p')
+                WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'u') \gexec
+              SELECT format('ALTER ROLE %I WITH LOGIN PASSWORD %L', :'u', :'p') \gexec
+              -- no RDS o usuário mestre precisa ser membro da role para criar o database em nome dela
+              SELECT format('GRANT %I TO CURRENT_USER', :'u') \gexec
+              SELECT format('CREATE DATABASE %I OWNER %I', :'d', :'u')
+                WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = :'d') \gexec
+              SELECT format('REVOKE CONNECT, TEMPORARY ON DATABASE %I FROM PUBLIC', :'d') \gexec
+              SELECT format('GRANT CONNECT, TEMPORARY ON DATABASE %I TO %I', :'d', :'u') \gexec
+              SQL
+              echo "execution_db pronto"

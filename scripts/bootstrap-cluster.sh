@@ -40,4 +40,20 @@ if ! $K get deployment oficina-api -n "$NS" -o jsonpath='{.spec.template.spec.co
   echo "RABBITMQ_URL injetada no oficina-api"
 fi
 
+
+# Banco próprio do execution-service (ADR-007): database e usuário dedicados na instância RDS
+if ! $K get secret execution-db -n "$NS" >/dev/null 2>&1; then
+  DB_HOST=$($K get configmap oficina-config -n "$NS" -o jsonpath='{.data.DB_HOST}')
+  EPASS=$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32)
+  $K create secret generic execution-db -n "$NS"     --from-literal=host="$DB_HOST"     --from-literal=port=5432     --from-literal=database=execution_db     --from-literal=user=execution     --from-literal=password="$EPASS"
+  echo "secret execution-db criado em $NS"
+fi
+$K delete job execution-db-init -n "$NS" --ignore-not-found
+sed -e "s|__NAMESPACE__|${NS}|g" "$DIR/execution-db-init.yaml" | $K apply -f -
+if ! $K wait --for=condition=complete job/execution-db-init -n "$NS" --timeout=180s; then
+  $K logs job/execution-db-init -n "$NS" --tail=50 || true
+  exit 1
+fi
+$K logs job/execution-db-init -n "$NS" --tail=5
+
 echo "bootstrap do cluster concluído em $NS"
